@@ -1,0 +1,374 @@
+<?php
+/*
+Output Transformer module
+AT
+Claude
+02.03.26
+*/
+
+namespace ProcessWire;
+
+class OutputTransformer extends WireData implements Module, ConfigurableModule {
+
+	public function init() {
+		//$this->addHookAfter('Modules::saveConfig', $this, 'hookAfterSaveConfig');
+
+		if( !$this->isEnabled || $this->isEnabled == '' ) return;
+
+//echo "\$this->cleanupPriority: ", var_dump($this->cleanupPriority), "<br>\n";
+
+		if( $this->cleanupPriority!=='' ) $this->addHookAfter( 'Page::render', $this, 'hookCleanup', ['priority' => $this->cleanupPriority? : -1] );
+		if( $this->typografyPriority!=='' ) $this->addHookAfter( 'Page::render', $this, 'hookTypografy', ['priority' => $this->typografyPriority? : -1] );
+		if( $this->replacePriority!=='' ) $this->addHookAfter( 'Page::render', $this, 'hookReplace', ['priority' => $this->replacePriority? : -1] );
+	}
+
+//publics
+
+/*
+	public function hookAfterSaveConfig($event) {
+		//should run in backend only!
+		//Only continue if settings of this module are being saved.
+		if( $event->arguments[0] !== $this->className ) return;
+		//if( $_POST['forceWipeOnModuleSave'] != 1 ) return;
+		//return $this->thingsToDoAfterSaveConfig();
+	}
+*/
+
+	public function hookTypografy($event) {
+		$page = $event->object;
+
+		// don't add this to no-transform template pages
+		if( !$this->canTransformBy($page, 'typografy') ) return;
+
+		$html = $event->return;
+		$html = $this->apply( $html, 'typografy' );
+
+		$event->return = $html;
+	}
+
+	public function hookReplace($event) {
+		$page = $event->object; 
+
+		// don't add this to no-transform template pages
+		if( !$this->canTransformBy($page, 'replace') ) return;
+
+		$html = $event->return;
+		$html = $this->apply( $html, 'replace' );
+
+		$event->return=$html;
+		}
+
+	public function hookCleanup($event) {
+		$page = $event->object;
+
+		// don't add this to denied  pages
+		if( !$this->canTransformBy($page, 'cleanup') ) return;
+
+		$html = $event->return;
+		$html = $this->apply( $html, 'cleanup' );
+
+		$event->return=$html;
+		}
+
+//privates
+
+	private function canTransformBy($page, $transformation) {
+		//checking whether page template is not in no$hookNameTemplates
+		$deniedTemplatesConfigParam = 'no'.ucfirst($transformation).'Templates';
+		if( $this->$deniedTemplatesConfigParam!== NULL )
+			if( in_array( $page->template->id, $this->$deniedTemplatesConfigParam ) ) return false;
+		return true;
+	}
+
+	private function apply( $html, $transformationName ){
+		//tries to chunkify $html and apply transformation outside no-transformation chunks, otherwise applies transformation to whole $html
+
+		//setting chunk tag
+		$transformationTags[] = "no-{$transformationName}"; //no-typography etc.
+
+		//adding some special tags like <textarea>
+		switch( $transformationName ){
+			case 'cleanup':
+				$transformationTags[] = 'textarea';
+			break;
+		}
+
+		//trying to chunkify the html
+		$chunks = $this->findChunks( $html, $transformationTags );
+
+		//applying transformation
+
+		$html = '';
+		foreach( $chunks as $chunk ){
+			$chunk = (Object)$chunk;
+			$html .= isset($chunk->tags)? $chunk->html : $this->$transformationName($chunk->html);
+		}
+
+		//removing chunk tags
+		foreach( $chunks as $chunk ){
+			$chunk = (Object)$chunk;
+			foreach( $transformationTags as $transformationTag ){
+				$keepChunkTag = false;
+
+				switch( $transformationName ){
+					case 'cleanup':
+						switch( $transformationTag ){
+							case 'textarea':
+								$keepChunkTag = true;
+							break;
+						}
+					break;
+				}
+
+				if( $keepChunkTag || !isset($chunk->tags) ) continue;
+
+				foreach( $chunk->tags as $chunkTag ){
+					if( !strstr($chunkTag, $transformationTag) ) continue;
+					$html = str_replace( $chunkTag, '', $html );
+				}
+			}
+		}
+
+		return $html;
+	}
+
+	private function findChunks($html, $tags) {
+		//output structure: $chunks[] = ['html' => $html, 'tagged' => $tagged ];
+		if (empty($tags)) {
+			return [['html' => $html]];
+		}
+
+		// Build a regex that matches opening or closing tags from the $tags list
+		$tagPattern = implode('|', array_map('preg_quote', $tags));
+		$regex = '/<(\/)?' .					// optional closing slash
+				 '(' . $tagPattern . ')' .		// tag name
+				 '(\s[^>]*)?' .					// optional attributes
+				 '>/i';
+
+		// Split the HTML into tokens: either a relevant tag or plain text between tags
+		$tokens = preg_split($regex, $html, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
+
+		/*
+		 * After PREG_SPLIT_DELIM_CAPTURE the tokens array contains:
+		 *   [text, closing_slash_or_empty, tag_name, attributes_or_empty, text, ...]
+		 * We walk through them and reconstruct full tag strings.
+		 */
+		$chunks   = [];
+		$current  = '';	   // accumulated HTML for the current chunk
+		$depth	= 0;		// nesting depth of tracked tags
+		$transformationTags = [];	  // tags found in the current chunk
+
+		$i = 0;
+		$count = count($tokens);
+
+		while ($i < $count) {
+			$token = $tokens[$i];
+
+			// Check whether this token is a tag-name capture (the 2nd capture group)
+			// We detect this by looking at the surrounding captures.
+			// Layout per match: [slash, name, attrs]  (indices shift by 3 each match)
+			// Instead, we re-scan each token against the regex to decide.
+			if (preg_match('/^' . '(\/)?' . '(' . $tagPattern . ')' . '(\s[^>]*)?$' . '/i', $token)) {
+				// This token IS one of [slash|name|attrs] capture groups – skip raw captures,
+				// they are handled below when we identify the tag name token.
+				$i++;
+				continue;
+			}
+
+			// Try to find the next full tag by checking if the NEXT tokens form [slash, name, attrs]
+			// Actually, let's just re-tokenise properly using preg_match_all for clarity.
+			$i++;
+		}
+
+		// -----------------------------------------------------------------------
+		// Cleaner approach: use preg_match_all to get all tags + positions,
+		// then walk through the original string positionally.
+		// -----------------------------------------------------------------------
+		$pattern = '/<(\/)?(' . $tagPattern . ')(\s[^>]*)?\s*>/i';
+		preg_match_all($pattern, $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+
+		$pos	 = 0;
+		$depth   = 0;
+		$current = '';
+		$transformationTags = [];
+		$chunks  = [];
+
+		foreach ($matches as $match) {
+			$fullTag   = $match[0][0];		   // e.g. <my-tag1 attr="value">
+			$tagOffset = $match[0][1];		   // byte offset in $html
+			$isClosing = $match[1][0] !== '';	// true if </…>
+			$tagName   = $match[2][0];		   // e.g. my-tag1
+
+			//  Text BEFORE this tag 
+			$before = substr($html, $pos, $tagOffset - $pos);
+
+			if ($depth === 0) {
+				// We are outside any tracked tag.
+				// Flush $before as an untagged chunk (if non-empty after trim).
+				$trimmed = trim($before);
+				if ($trimmed !== '') {
+					$chunks[] = ['html' => $trimmed];
+				}
+				// Start a new tagged chunk.
+				$current   = '';
+				$transformationTags = [];
+			} else {
+				// We are inside a tracked tag – just accumulate.
+				$current .= $before;
+			}
+
+			//  Process the tag itself 
+			$current .= $fullTag;
+
+			// Reconstruct a "clean" tag label for the tags array
+			if ($isClosing) {
+				$transformationTags[] = '</' . $tagName . '>';
+				$depth--;
+			} else {
+				// Build opening tag label (keep attributes)
+				$attrs = isset($match[3][0]) ? $match[3][0] : '';
+				$transformationTags[] = '<' . $tagName . $attrs . '>';
+				$depth++;
+			}
+
+			$pos = $tagOffset + strlen($fullTag);
+
+			//  If depth hits 0 we just closed the outermost tag  flush chunk 
+			if ($depth === 0) {
+				$chunks[] = [
+					'html' => trim($current),
+					'tags' => $transformationTags,
+				];
+				$current   = '';
+				$transformationTags = [];
+			}
+		}
+
+		//  Any remaining text after the last tag 
+		$tail = substr($html, $pos);
+		if ($tail !== false) {
+			$trimmed = trim($tail);
+			if ($trimmed !== '') {
+				$chunks[] = ['html' => $trimmed];
+			}
+		}
+
+		return $chunks;
+	}
+
+	private function cleanup($html) {
+		$search=["\n","\r","\t"];
+		$replace=[" ",""," "];
+		$html=str_replace($search,$replace,$html);
+		
+		//removing comments
+		$html=preg_replace("/<\!--(.*?)-->/","",$html);
+
+		//merging whitespaces
+		$html=preg_replace("/( {2,})/"," ",$html);
+
+		//removing whitespaces between tags
+		$html=str_replace("> <","><",$html);
+
+		//removing leading and trailing spaces near tags
+		$html = preg_replace_callback(
+			'~<([a-z]+)([^>]*)>([^<^>]*?)</\g{1}>~U',
+			function( $matches ){
+				return "<{$matches[1]}{$matches[2]}>" . trim($matches[3]) . "</{$matches[1]}>";
+			},
+			$html
+		);
+
+		$html = str_replace('> <', '><', $html);
+		$html = str_replace(' >', '>', $html);
+		$html = str_replace('< ', '<', $html);
+
+		//removing single and double quotes for attribs like id, style etc.
+		$html = preg_replace( '/="([^":=\s]+?)"/mi', '=$1', $html );
+		$html = preg_replace( '/=\'([^":=\s]+?)\'/mi', '=$1', $html );
+
+		//removing whitespaces at the beginning and end of attribute values
+		$html = str_replace('=" ', '="', $html);
+		//$html = str_replace(' "', '"', $html);
+
+		//removing unused ; in attribute values
+		$html = str_replace(';"', '"', $html);
+
+		return $html;
+	}
+
+	private function typografy($html) {
+		$lang = wire('user')->language->name;
+//echo '$this->{typograf_$lang}: ', var_dump($this->{"typograf_$lang"});
+		if( !$this->{"typograf_$lang"} ) return $html;
+
+		$typografMethodName = $this->{"typograf_$lang"};
+		$typografMethodName = method_exists($this, $typografMethodName)? $typografMethodName : 'typopgrafIntl';
+//echo '$typografMethodName: ', var_dump($typografMethodName);
+		$html = $this->$typografMethodName($html);
+
+		return $html;
+	}
+
+	private function typografIntl($html){
+		//uses mundshenk-at typograf
+		if ( !class_exists('\\PHP_Typography\\PHP_Typography') ) return $html;
+
+		$locales = [
+			'en'		=> 'en-US',
+			'fr'		=> 'fr-FR',
+			'es'		=> 'es-ES',
+		];
+
+		$lang = wire('user')->language->title;
+//		$locale = $locales[$lang]? : 'en-US';
+
+		$settings = new \PHP_Typography\Settings();
+		$settings->set_hyphenation( true );
+		$settings->set_hyphenation_language($locale);
+
+		$typo = new \PHP_Typography\PHP_Typography();
+		$html = $typo->process( $html, $settings );
+
+		return $html;
+	}
+
+	private function typografCyr($html){
+		//uses EMT-php8 typograf from https://mdash.ru/, https://atis.pro/ version
+		if ( !class_exists('\\EMT\\EMTypograph') ) return $html;
+
+		$options = [
+			'Etc.split_number_to_triads'=>'off',
+
+			'OptAlign.all'=>'off',
+
+			'Space.bracket_fix'=>'off',
+
+			'Text.breakline'=>'off',
+			'Text.email'=>'off',
+			'Text.paragraphs'=>'off',
+		];
+
+		$html = \EMT\EMTypograph::fast_apply($html,$options);
+
+		return $html;
+	}
+
+	private function replace($html) {
+		if( !$this->replaceWhats || $this->replaceWhats == '' ) return $html;
+
+		//parsing $this->replaceWhats
+		$replaceWhats = explode( "\n", $this->replaceWhats );
+		//parsing $this->replaceBys
+		$replaceBys = explode( "\n", $this->replaceBys );
+
+		foreach( $replaceWhats as $i=>$replaceWhat ){
+			if( !$replaceBys[$i]) continue;
+
+			$html = mb_ereg_replace( $replaceWhat, $replaceBys[$i], $html ); //can be memory and time heavy!
+			//$html = str_replace( $replaceWhat, $replaceBys[$i], $html );
+		}
+		return $html;
+	}
+
+}
