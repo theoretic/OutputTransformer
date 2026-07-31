@@ -9,7 +9,7 @@ namespace ProcessWire;
 
 $info = [
 	'title'					=> 'OutputTransformer',
-	'version'				=> 020,
+	'version'				=> 021,
 	'summary'				=> 'Strips extra symbols from output, performs typographics, replacements etc.',
 	'author'				=> 'AT / atis.pro',
 	'href'					=> 'http://atis.pro',
