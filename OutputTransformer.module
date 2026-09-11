@@ -3,15 +3,23 @@
 Output Transformer module
 AT
 Claude
-13.08.26
+13.08.26, 11.09.26
 */
 
 namespace ProcessWire;
 
+require_once __DIR__ . '/OutputTransformerMasker.php';
+require_once __DIR__ . '/OutputTransformerCleanup.php';
+
 class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
+	const LOG = 'outputtransformer';
+
+	//elements typografy and replace have no business in: code, css, form values
+	const OFF_LIMITS = ['script', 'style', 'textarea'];
+
 	public function init() {
-		//$this->addHookAfter('Modules::saveConfig', $this, 'hookAfterSaveConfig');
+		$this->addHookAfter('Modules::saveConfig', $this, 'hookAfterSaveConfig');
 
 		if( !$this->isEnabled || $this->isEnabled == '' ) return;
 
@@ -24,53 +32,40 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 //publics
 
-/*
 	public function hookAfterSaveConfig($event) {
-		//should run in backend only!
-		//Only continue if settings of this module are being saved.
-		if( $event->arguments[0] !== $this->className ) return;
-		//if( $_POST['forceWipeOnModuleSave'] != 1 ) return;
-		//return $this->thingsToDoAfterSaveConfig();
+		//settings of this module only: report keep patterns that do not compile
+		$module = $event->arguments(0);
+		$class = is_object($module) ? $module->className() : wireClassName((string)$module);
+		if( $class !== $this->className() ) return;
+
+		$data = $this->wire('modules')->getConfig($this);
+		foreach( ['cleanup', 'typografy', 'replace'] as $transformation ){
+			$field = 'keep'.ucfirst($transformation).'Patterns';
+			OutputTransformerMasker::userRules( $data[$field] ?? '', function($message) use ($transformation) {
+				$this->warning( "OutputTransformer, $transformation: $message -- it will be skipped" );
+			});
+		}
 	}
-*/
 
 	public function hookTypografy($event) {
-		$page = $event->object;
-
-		// don't add this to no-transform template pages
-		if( !$this->canTransformBy($page, 'typografy') ) return;
-
-		$html = $event->return;
-		$html = $this->apply( $html, 'typografy' );
-
-		$event->return = $html;
+		$event->return = $this->transform( $event->object, $event->return, 'typografy' );
 	}
 
 	public function hookReplace($event) {
-		$page = $event->object; 
-
-		// don't add this to no-transform template pages
-		if( !$this->canTransformBy($page, 'replace') ) return;
-
-		$html = $event->return;
-		$html = $this->apply( $html, 'replace' );
-
-		$event->return=$html;
-		}
+		$event->return = $this->transform( $event->object, $event->return, 'replace' );
+	}
 
 	public function hookCleanup($event) {
-		$page = $event->object;
-
-		// don't add this to denied  pages
-		if( !$this->canTransformBy($page, 'cleanup') ) return;
-
-		$html = $event->return;
-		$html = $this->apply( $html, 'cleanup' );
-
-		$event->return=$html;
-		}
+		$event->return = $this->transform( $event->object, $event->return, 'cleanup' );
+	}
 
 //privates
+
+	private function transform($page, $html, $transformation) {
+		// no-transform template pages still lose this stage's <no-x> wrapper tags
+		if( !$this->canTransformBy($page, $transformation) ) return OutputTransformerMasker::stripWrapper( (string)$html, $transformation );
+		return $this->apply( $html, $transformation );
+	}
 
 	private function canTransformBy($page, $transformation) {
 		//checking whether page template is not in no$hookNameTemplates
@@ -81,220 +76,37 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	}
 
 	private function apply( $html, $transformationName ){
-		//tries to chunkify $html and apply transformation outside no-transformation chunks, otherwise applies transformation to whole $html
+		//masks what the transformation must not touch, runs it, puts the masked parts back;
+		//on any failure the page goes out untransformed rather than broken or blank
 
-		//setting chunk tag
-		$transformationTags[] = "no-{$transformationName}"; //no-typography etc.
+		$log = function($message) { $this->log($message); };
 
-		//adding some special tags like <textarea>
-		switch( $transformationName ){
-			case 'cleanup':
-				$transformationTags[] = 'textarea';
-			break;
-		}
+		//<no-x> wrappers first: their content is kept, the wrapper tags dropped
+		$rules = [ OutputTransformerMasker::wrapperRule($transformationName) ];
 
-		//trying to chunkify the html
-		$chunks = $this->findChunks( $html, $transformationTags );
+		//cleanup knows script, pre, textarea and style itself; the other two do not
+		if( $transformationName !== 'cleanup' ) $rules[] = OutputTransformerMasker::elementRule(self::OFF_LIMITS);
 
-		//applying transformation
+		//"Keep these untouched" from the settings
+		$keepPatterns = $this->{'keep'.ucfirst($transformationName).'Patterns'};
+		$rules = array_merge( $rules, OutputTransformerMasker::userRules($keepPatterns, $log) );
 
-		$html = '';
-		foreach( $chunks as $chunk ){
-			$chunk = (Object)$chunk;
-			$html .= isset($chunk->tags)? $chunk->html : $this->$transformationName($chunk->html);
-		}
-
-		//removing chunk tags
-		foreach( $chunks as $chunk ){
-			$chunk = (Object)$chunk;
-			foreach( $transformationTags as $transformationTag ){
-				$keepChunkTag = false;
-
-				switch( $transformationName ){
-					case 'cleanup':
-						switch( $transformationTag ){
-							case 'textarea':
-								$keepChunkTag = true;
-							break;
-						}
-					break;
-				}
-
-				if( $keepChunkTag || !isset($chunk->tags) ) continue;
-
-				foreach( $chunk->tags as $chunkTag ){
-					if( !strstr($chunkTag, $transformationTag) ) continue;
-					$html = str_replace( $chunkTag, '', $html );
-				}
-			}
-		}
-
-		return $html;
+		return OutputTransformerMasker::run( $html, $transformationName, function($masked) use ($transformationName) {
+			return $this->$transformationName($masked);
+		}, $rules, $log );
 	}
 
-	private function findChunks($html, $tags) {
-		//output structure: $chunks[] = ['html' => $html, 'tagged' => $tagged ];
-		if (empty($tags)) {
-			return [['html' => $html]];
-		}
-
-		// Build a regex that matches opening or closing tags from the $tags list
-		$tagPattern = implode('|', array_map('preg_quote', $tags));
-		$regex = '/<(\/)?' .					// optional closing slash
-				 '(' . $tagPattern . ')' .		// tag name
-				 '(\s[^>]*)?' .					// optional attributes
-				 '>/i';
-
-		// Split the HTML into tokens: either a relevant tag or plain text between tags
-		$tokens = preg_split($regex, $html, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
-
-		/*
-		 * After PREG_SPLIT_DELIM_CAPTURE the tokens array contains:
-		 *   [text, closing_slash_or_empty, tag_name, attributes_or_empty, text, ...]
-		 * We walk through them and reconstruct full tag strings.
-		 */
-		$chunks   = [];
-		$current  = '';	   // accumulated HTML for the current chunk
-		$depth	= 0;		// nesting depth of tracked tags
-		$transformationTags = [];	  // tags found in the current chunk
-
-		$i = 0;
-		$count = count($tokens);
-
-		while ($i < $count) {
-			$token = $tokens[$i];
-
-			// Check whether this token is a tag-name capture (the 2nd capture group)
-			// We detect this by looking at the surrounding captures.
-			// Layout per match: [slash, name, attrs]  (indices shift by 3 each match)
-			// Instead, we re-scan each token against the regex to decide.
-			if (preg_match('/^' . '(\/)?' . '(' . $tagPattern . ')' . '(\s[^>]*)?$' . '/i', $token)) {
-				// This token IS one of [slash|name|attrs] capture groups – skip raw captures,
-				// they are handled below when we identify the tag name token.
-				$i++;
-				continue;
-			}
-
-			// Try to find the next full tag by checking if the NEXT tokens form [slash, name, attrs]
-			// Actually, let's just re-tokenise properly using preg_match_all for clarity.
-			$i++;
-		}
-
-		// -----------------------------------------------------------------------
-		// Cleaner approach: use preg_match_all to get all tags + positions,
-		// then walk through the original string positionally.
-		// -----------------------------------------------------------------------
-		$pattern = '/<(\/)?(' . $tagPattern . ')(\s[^>]*)?\s*>/i';
-		preg_match_all($pattern, $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
-
-		$pos	 = 0;
-		$depth   = 0;
-		$current = '';
-		$transformationTags = [];
-		$chunks  = [];
-
-		foreach ($matches as $match) {
-			$fullTag   = $match[0][0];		   // e.g. <my-tag1 attr="value">
-			$tagOffset = $match[0][1];		   // byte offset in $html
-			$isClosing = $match[1][0] !== '';	// true if </…>
-			$tagName   = $match[2][0];		   // e.g. my-tag1
-
-			//  Text BEFORE this tag 
-			$before = substr($html, $pos, $tagOffset - $pos);
-
-			if ($depth === 0) {
-				// We are outside any tracked tag.
-				// Flush $before as an untagged chunk (if non-empty after trim).
-				$trimmed = trim($before);
-				if ($trimmed !== '') {
-					$chunks[] = ['html' => $trimmed];
-				}
-				// Start a new tagged chunk.
-				$current   = '';
-				$transformationTags = [];
-			} else {
-				// We are inside a tracked tag – just accumulate.
-				$current .= $before;
-			}
-
-			//  Process the tag itself 
-			$current .= $fullTag;
-
-			// Reconstruct a "clean" tag label for the tags array
-			if ($isClosing) {
-				$transformationTags[] = '</' . $tagName . '>';
-				$depth--;
-			} else {
-				// Build opening tag label (keep attributes)
-				$attrs = isset($match[3][0]) ? $match[3][0] : '';
-				$transformationTags[] = '<' . $tagName . $attrs . '>';
-				$depth++;
-			}
-
-			$pos = $tagOffset + strlen($fullTag);
-
-			//  If depth hits 0 we just closed the outermost tag  flush chunk 
-			if ($depth === 0) {
-				$chunks[] = [
-					'html' => trim($current),
-					'tags' => $transformationTags,
-				];
-				$current   = '';
-				$transformationTags = [];
-			}
-		}
-
-		//  Any remaining text after the last tag 
-		$tail = substr($html, $pos);
-		if ($tail !== false) {
-			$trimmed = trim($tail);
-			if ($trimmed !== '') {
-				$chunks[] = ['html' => $trimmed];
-			}
-		}
-
-		return $chunks;
+	private function log($message) {
+		//once per message per request: a broken pattern must not write a line per render
+		static $logged = [];
+		if( isset($logged[$message]) ) return;
+		$logged[$message] = true;
+		$this->wire('log')->save( self::LOG, $message );
 	}
 
 	private function cleanup($html) {
-		$search=["\n","\r","\t"];
-		$replace=[" ",""," "];
-		$html=str_replace($search,$replace,$html);
-		
-		//removing comments
-		$html=preg_replace("/<\!--(.*?)-->/","",$html);
-
-		//merging whitespaces
-		$html=preg_replace("/( {2,})/"," ",$html);
-
-		//removing whitespaces between tags
-		$html=str_replace("> <","><",$html);
-
-		//removing leading and trailing spaces near tags
-		$html = preg_replace_callback(
-			'~<([a-z]+)([^>]*)>([^<^>]*?)</\g{1}>~U',
-			function( $matches ){
-				return "<{$matches[1]}{$matches[2]}>" . trim($matches[3]) . "</{$matches[1]}>";
-			},
-			$html
-		);
-
-		$html = str_replace('> <', '><', $html);
-		$html = str_replace(' >', '>', $html);
-		$html = str_replace('< ', '<', $html);
-
-		//removing single and double quotes for attribs like id, style etc.
-		$html = preg_replace( '/="([^":=\s]+?)"/mi', '=$1', $html );
-		$html = preg_replace( '/=\'([^":=\s]+?)\'/mi', '=$1', $html );
-
-		//removing whitespaces at the beginning and end of attribute values
-		$html = str_replace('=" ', '="', $html);
-		//$html = str_replace(' "', '"', $html);
-
-		//removing unused ; in attribute values
-		$html = str_replace(';"', '"', $html);
-
-		return $html;
+		//see OutputTransformerCleanup.php; null on a PCRE error, which apply() treats as failure
+		return OutputTransformerCleanup::run($html);
 	}
 
 	private function typografy($html) {
@@ -303,7 +115,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 		if( !$this->{"typograf_$lang"} ) return $html;
 
 		$typografMethodName = $this->{"typograf_$lang"};
-		$typografMethodName = method_exists($this, $typografMethodName)? $typografMethodName : 'typopgrafIntl';
+		$typografMethodName = method_exists($this, $typografMethodName)? $typografMethodName : 'typografIntl';
 //echo '$typografMethodName: ', var_dump($typografMethodName);
 		$html = $this->$typografMethodName($html);
 
@@ -320,8 +132,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 			'es'		=> 'es-ES',
 		];
 
-		$lang = wire('user')->language->title;
-//		$locale = $locales[$lang]? : 'en-US';
+		$locale = $locales[ wire('user')->language->name ] ?? 'en-US';
 
 		$settings = new \PHP_Typography\Settings();
 		$settings->set_hyphenation( true );
@@ -367,6 +178,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 			$html = mb_ereg_replace( $replaceWhat, $replaceBys[$i], $html ); //can be memory and time heavy!
 			//$html = str_replace( $replaceWhat, $replaceBys[$i], $html );
+			if( !is_string($html) ) return null;
 		}
 		return $html;
 	}

@@ -55,8 +55,22 @@ foreach( $transformations as $transformation=>$params ){
 	];
 }
 
+//keep patterns: the escape hatch for what no built-in rule foresaw
+foreach( $transformations as $transformation=>$params ){
+	$config[] =
+	[
+	'name'					=> 'keep'.ucfirst($transformation).'Patterns',
+	'type'					=> 'textarea',
+	'label'					=> sprintf( $this->_('Keep untouched by %s'), $transformation ),
+	'description'			=> $this->_('One PCRE pattern per line, with delimiters. Whatever it matches is left exactly as it is.'),
+	'notes'					=> sprintf( $this->_('Example: %s. A pattern that does not compile is skipped and logged. Built in already: <no-%s> wrappers%s.'), '~<input\b[^>]*name="?title_separator[^>]*>~i', $transformation, $transformation === 'cleanup' ? $this->_(', script, style, pre and textarea content, attribute values') : $this->_(', script, style and textarea elements') ),
+	'columnWidth'			=> 33,
+	'rows'					=> 3,
+	];
+}
+
 //replacements
-$config[] = 
+$config[] =
 [
 'name'					=> 'replaceWhats',
 'type'					=> 'textarea',
