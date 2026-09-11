@@ -8,9 +8,6 @@ Claude
 
 namespace ProcessWire;
 
-require_once __DIR__ . '/OutputTransformerMasker.php';
-require_once __DIR__ . '/OutputTransformerCleanup.php';
-
 class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 	const LOG = 'outputtransformer';
@@ -18,7 +15,19 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	//elements typografy and replace have no business in: code, css, form values
 	const OFF_LIMITS = ['script', 'style', 'textarea'];
 
+	//loaded in init(), not at the top of the file: a deploy that uploads this file
+	//before its helpers must leave pages untransformed for a moment, not fatal
+	const HELPERS = ['OutputTransformerMasker.php', 'OutputTransformerCleanup.php'];
+
 	public function init() {
+		foreach( self::HELPERS as $helper ){
+			if( !is_file(__DIR__ . "/$helper") ){
+				$this->log( "$helper is missing -- no transformations until it is there" );
+				return;
+			}
+			require_once __DIR__ . "/$helper";
+		}
+
 		$this->addHookAfter('Modules::saveConfig', $this, 'hookAfterSaveConfig');
 
 		if( !$this->isEnabled || $this->isEnabled == '' ) return;
