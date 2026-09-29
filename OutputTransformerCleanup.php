@@ -27,13 +27,18 @@ element holding nothing but text. (0.3.0 missed that for h1-h6, whose names
 its [a-z]+ pattern did not match; headings are blocks, so nothing visible
 changes.) xmp and plaintext are not supported.
 
+Since 0.4.1 spaces between two text-level tags (a, strong, code, span...)
+stay as one: that is a word space in running text, and "запись.</strong>
+<code>" lost it. Only spaces -- a line break or tab there is template layout,
+still removed as before.
+
 Whitespace here is [ \t\n\r\f], never \s with /u: that matches U+00A0, and a
 non-breaking space is content.
 
 No ProcessWire dependency, so tests/run.php can load it directly.
 
 AT
-11.09.26
+11.09.26, 29.09.26
 */
 
 namespace ProcessWire;
@@ -44,6 +49,11 @@ class OutputTransformerCleanup {
 
 	//attributes whose values are whitespace-separated lists
 	const LIST_ATTRIBUTES = ['class', 'rel', 'srcset', 'sizes'];
+
+	//phrasing elements that hold text; whitespace between two of them is a word
+	//space. Replaced and form elements (img, svg, button, input...) are left out:
+	//they are the ones laid out in rows that pages were styled against
+	const TEXT_LEVEL = ['a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'del', 'dfn', 'em', 'i', 'ins', 'kbd', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var'];
 
 	const SEGMENTS = '~
 		(?<comment><!--.*?-->)
@@ -126,8 +136,13 @@ class OutputTransformerCleanup {
 			$prev = $merged[$i - 1] ?? null;
 			$next = $merged[$i + 1] ?? null;
 
-			//whitespace between two tags: dropped, as 0.3.0 did with "> <"
-			if(trim($text, self::WS) === '' && $prev && $next) continue;
+			//whitespace between two tags: dropped, as 0.3.0 did with "> <", unless it is
+			//a word space in running text: spaces only, between two text-level tags,
+			//as in "запись.</strong> <code>". Line breaks and tabs are template layout
+			if(trim($text, self::WS) === '' && $prev && $next) {
+				if(trim($piece[1], ' ') === '' && self::isTextLevel($prev) && self::isTextLevel($next)) $out .= ' ';
+				continue;
+			}
 
 			//the only text of an element: trimmed, as 0.3.0 did for leaf elements
 			if($prev && $next && $prev[0] === 'tag' && $next[0] === 'tag' && !$prev[3] && $next[3] && $prev[2] === $next[2]) {
@@ -212,6 +227,10 @@ class OutputTransformerCleanup {
 		if(substr($value, -1) === '/') return false;
 		if(strpos($value, OutputTransformerMasker::RESERVED_PREFIX) !== false) return false;
 		return (bool) preg_match('~^[^ \t\n\r\f"\'=<>`:]+$~', $value);
+	}
+
+	private static function isTextLevel(array $piece) {
+		return $piece[0] === 'tag' && in_array($piece[2], self::TEXT_LEVEL, true);
 	}
 
 	public static function keepComment($comment) {
