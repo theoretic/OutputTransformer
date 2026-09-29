@@ -42,7 +42,7 @@ Each transformation is a `Page::render` hook with the priority set in the settin
 
 Since 0.4.0 cleanup splits the page into comments, tags, text and raw-text elements, and treats each kind on its own:
 
-- whitespace in text is collapsed; whitespace between two tags, and around the text of an element holding nothing but text, is removed — except spaces (no line break or tab) between two text-level tags such as `</strong> <code>`, which are a word space and stay as one;
+- whitespace in text is collapsed; whitespace between two tags, and around the text of an element holding nothing but text, is removed — except spaces (no line break or tab) between two text-level tags such as `</strong> <code>`, which are a word space and stay as one; likewise a space trimmed from the edge of a text-level element that sits flush against running text moves outside the tag (`слово<b> жирное</b>` → `слово <b>жирное</b>`);
 - tags are rebuilt with one space between attributes, and quotes are dropped where HTML allows it;
 - comments are removed, except conditional comments and `<!--noindex-->`.
 

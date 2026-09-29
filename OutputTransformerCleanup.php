@@ -30,7 +30,9 @@ changes.) xmp and plaintext are not supported.
 Since 0.4.1 spaces between two text-level tags (a, strong, code, span...)
 stay as one: that is a word space in running text, and "запись.</strong>
 <code>" lost it. Only spaces -- a line break or tab there is template layout,
-still removed as before.
+still removed as before. Since 0.4.2, likewise the leaf trim: a word space at the edge of
+a text-level element that sits flush against running text moves outside the
+tag ("слово<b> жирное</b>" to "слово <b>жирное</b>") instead of gluing words.
 
 Whitespace here is [ \t\n\r\f], never \s with /u: that matches U+00A0, and a
 non-breaking space is content.
@@ -125,10 +127,12 @@ class OutputTransformerCleanup {
 
 		$out = '';
 		$count = count($merged);
+		$spaceAfter = []; //tags to follow with the word space a leaf trim took out
 		foreach($merged as $i => $piece) {
 
 			if($piece[0] !== 'text') {
 				$out .= $piece[1];
+				if(isset($spaceAfter[$i])) $out .= ' ';
 				continue;
 			}
 
@@ -144,8 +148,21 @@ class OutputTransformerCleanup {
 				continue;
 			}
 
-			//the only text of an element: trimmed, as 0.3.0 did for leaf elements
+			//the only text of an element: trimmed, as 0.3.0 did for leaf elements. In a
+			//text-level element a word space against running text moves outside the tag
+			//instead: "слово<b> жирное</b>" becomes "слово <b>жирное</b>", not glued
 			if($prev && $next && $prev[0] === 'tag' && $next[0] === 'tag' && !$prev[3] && $next[3] && $prev[2] === $next[2]) {
+				if(self::isTextLevel($prev)) {
+					$raw = $piece[1];
+					$lead = substr($raw, 0, strspn($raw, self::WS));
+					$trail = substr($raw, strlen(rtrim($raw, self::WS)));
+					if(self::isWordSpace($lead) && self::abuts($merged[$i - 2] ?? null, true)) {
+						$out = substr($out, 0, -strlen($prev[1]));
+						if($out !== '' && substr($out, -1) !== ' ') $out .= ' ';
+						$out .= $prev[1];
+					}
+					if(self::isWordSpace($trail) && self::abuts($merged[$i + 2] ?? null, false)) $spaceAfter[$i + 1] = true;
+				}
 				$text = trim($text, self::WS);
 			}
 
@@ -231,6 +248,28 @@ class OutputTransformerCleanup {
 
 	private static function isTextLevel(array $piece) {
 		return $piece[0] === 'tag' && in_array($piece[2], self::TEXT_LEVEL, true);
+	}
+
+	//spaces only: a line break or tab is template layout
+	private static function isWordSpace($whitespace) {
+		return $whitespace !== '' && trim($whitespace, ' ') === '';
+	}
+
+	/**
+	 * Whether a piece sits flush against an element from outside, so a space
+	 * trimmed from the element's edge was the only thing keeping words apart:
+	 * text with no whitespace on that side, or a text-level tag facing it
+	 * (a closing one before the element, an opening one after it).
+	 */
+	private static function abuts($piece, $before) {
+		if(!$piece) return false;
+		if($piece[0] === 'text') {
+			$text = $piece[1];
+			if(trim($text, self::WS) === '') return false;
+			$edge = $before ? substr($text, -1) : $text[0];
+			return strpos(self::WS, $edge) === false;
+		}
+		return self::isTextLevel($piece) && $piece[3] === $before;
 	}
 
 	public static function keepComment($comment) {
