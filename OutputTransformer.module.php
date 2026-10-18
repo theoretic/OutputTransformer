@@ -38,6 +38,9 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 	const STAGES = array('cleanup', 'typografy', 'replace');
 
+	//never transformed, whatever the "No ... page templates" settings say
+	const SKIP_TEMPLATES = array('admin');
+
 	/**
 	 * Stages whose <no-x> markers hookStripMarkers() removes: the ones that do not run
 	 *
@@ -105,7 +108,74 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	}
 
 	public function hookStripMarkers(HookEvent $event) {
+		if(!$this->appliesTo($event)) return;
 		$event->return = self::stripMarkers($event->return, $this->strippedStages);
+	}
+
+	/**
+	 * Whether a Page::render call is one this module may touch at all
+	 *
+	 * Only the page being viewed, rendered as a whole, as HTML, and never the admin. Partial
+	 * renders are left alone, markers included: they end up inside the page that is viewed,
+	 * which is transformed once, as a whole.
+	 *
+	 */
+	protected function appliesTo(HookEvent $event) {
+		$page = $event->object;
+		if(!$page instanceof Page || !$page->template) return false;
+		if(in_array($page->template->name, self::SKIP_TEMPLATES, true)) return false;
+		if(!$this->isPageView($page, $event->arguments())) return false;
+		return $this->isHtmlResponse($page);
+	}
+
+	/**
+	 * Whether this render is the page being viewed, not a partial render
+	 *
+	 * Partial: another page's render() (as StaticPages::cachePage() checks), or the viewed page
+	 * rendering a field or another file of itself ($page->render('body'), render('file.php')).
+	 *
+	 * @param Page $page
+	 * @param array $arguments Arguments of the render() call
+	 * @return bool
+	 *
+	 */
+	public function isPageView(Page $page, array $arguments = array()) {
+		if($page !== $this->wire()->page) return false;
+		$first = $arguments[0] ?? null;
+		if(is_string($first) && $first !== '') return false;
+		if(is_array($first) && !empty($first['filename'])) return false;
+		return true;
+	}
+
+	/**
+	 * Whether the response is HTML: by the template's content type, then by a Content-Type
+	 * header the template may have sent itself
+	 *
+	 * @param Page $page
+	 * @param array|null $headers Headers to check, headers_list() when omitted
+	 * @return bool
+	 *
+	 */
+	public function isHtmlResponse(Page $page, ?array $headers = null) {
+		$type = (string) $page->template->contentType;
+		if($type !== '') {
+			if(strpos($type, '/') === false) {
+				$types = $this->wire()->config->contentTypes;
+				$type = is_array($types) && isset($types[$type]) ? $types[$type] : $type;
+			}
+			if(!self::isHtmlType($type)) return false;
+		}
+		if($headers === null) $headers = headers_list();
+		foreach(array_reverse($headers) as $header) {
+			if(stripos($header, 'content-type:') !== 0) continue;
+			return self::isHtmlType(substr($header, 13));
+		}
+		return true;
+	}
+
+	protected static function isHtmlType($type) {
+		list($mime) = explode(';', strtolower($type), 2);
+		return in_array(trim($mime), array('', 'html', 'text/html', 'application/xhtml+xml'), true);
 	}
 
 	public function hookAfterSaveConfig(HookEvent $event) {
@@ -124,14 +194,17 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	}
 
 	public function hookTypografy(HookEvent $event) {
+		if(!$this->appliesTo($event)) return;
 		$event->return = $this->transform($event->object, $event->return, 'typografy');
 	}
 
 	public function hookReplace(HookEvent $event) {
+		if(!$this->appliesTo($event)) return;
 		$event->return = $this->transform($event->object, $event->return, 'replace');
 	}
 
 	public function hookCleanup(HookEvent $event) {
+		if(!$this->appliesTo($event)) return;
 		$event->return = $this->transform($event->object, $event->return, 'cleanup');
 	}
 
