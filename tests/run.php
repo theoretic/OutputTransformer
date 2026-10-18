@@ -80,6 +80,15 @@ $cases = array(
 	array('an invalid keep pattern is skipped, not fatal', function($h) use ($cleanup) { return $cleanup($h, array('~unclosed[')); }, '<p>a  b</p>', '<p>a b</p>'),
 	array('input with placeholder-range characters returned unchanged', $cleanup, "<p>a  \u{F8F0}b</p> <no-cleanup>x</no-cleanup>", "<p>a  \u{F8F0}b</p> x"),
 	array('replace leaves script and style alone', $replace, "<p>a & b --c</p><script>if (a & b) i --;</script><style>:root{ --gut: 1rem }</style>", "<p>a&nbsp;&&nbsp;b &mdash;c</p><script>if (a & b) i --;</script><style>:root{ --gut: 1rem }</style>"),
+	//since 0.5.0: nested wrappers of one stage, and the cases of the unmerged v21 branch
+	array('nested no-cleanup: the inner closing tag does not end the protection', $cleanup, 'a<no-cleanup>b  <no-cleanup>c  </no-cleanup>d  </no-cleanup>e  f', 'ab  c  d  e f'),
+	array('unclosed no-cleanup: content cleaned, kept, wrapper gone', $cleanup, '<p>keep me</p><no-cleanup><p>and  me</p>', '<p>keep me</p><p>and me</p>'),
+	array('stray closing no-cleanup: dropped, nothing else shifts', $cleanup, '<p>a</p></no-cleanup><p>b  c</p>', '<p>a</p><p>b c</p>'),
+	array('marker name in prose is not a marker', $cleanup, '<p>the no-cleanup marker</p>', '<p>the no-cleanup marker</p>'),
+	array('no-cleanup inside head: content kept, wrapper gone', $cleanup, '<head><no-cleanup><link href="/a.css"></no-cleanup><title>t</title></head>', '<head><link href="/a.css"><title>t</title></head>'),
+	array('entity ending an attribute value keeps its ;', $cleanup, '<meta name="description" content="Ёлки &raquo;">', '<meta name=description content="Ёлки &raquo;">'),
+	array('comparison operators in prose', $cleanup, '<p>температура < 100 > 50</p>', '<p>температура < 100 > 50</p>'),
+	array('space before /> dropped, last value keeps its quotes', $cleanup, '<meta property="og:type" content="article" />', '<meta property="og:type" content="article"/>'),
 );
 
 $failed = 0;
@@ -114,6 +123,16 @@ $ms = round((microtime(true) - $t) * 1000);
 $ok = is_string($out) && strlen($out) > 0 && strlen($out) < strlen($big);
 if(!$ok) $failed++;
 printf("%s %s MB page: %s KB out in %d ms\n", $ok ? 'ok  ' : 'FAIL', round(strlen($big) / 1048576, 1), round(strlen((string) $out) / 1024), $ms);
+
+//a big wrapped block: the recursive wrapper rule must neither fail nor drop it
+$block = str_repeat("<p>a  b</p><no-cleanup><i> x </i></no-cleanup>$nl", 20000);
+$wrapped = "<div>  </div><no-cleanup>$block</no-cleanup><p>c  d</p>";
+$t = microtime(true);
+$out = $cleanup($wrapped);
+$ms = round((microtime(true) - $t) * 1000);
+$ok = $out === '<div></div>' . str_replace(array('<no-cleanup>', '</no-cleanup>'), '', $block) . '<p>c d</p>';
+if(!$ok) $failed++;
+printf("%s %s MB inside one nested no-cleanup kept byte for byte in %d ms\n", $ok ? 'ok  ' : 'FAIL', round(strlen($block) / 1048576, 1), $ms);
 
 if($logged) echo "\nlogged:\n  " . implode("\n  ", array_unique($logged)) . "\n";
 echo $failed ? "\n$failed FAILED\n" : "\nall passed\n";

@@ -84,10 +84,15 @@ class OutputTransformerMasker {
 
 	/**
 	 * The wrapper rule for a stage: <no-x>content</no-x> is kept, wrapper dropped.
+	 *
+	 * Nested wrappers of the same stage (a partial with its own <no-x> included inside
+	 * another) are matched whole by recursion, so the inner closing tag does not end the
+	 * protection early; the inner tags go with stripWrapper(). Possessive, so a wrapper
+	 * left unclosed costs no backtracking: it is simply not protected.
 	 */
 	public static function wrapperRule($stage) {
 		$tag = preg_quote("no-$stage", '~');
-		return array("~<$tag\b[^>]*>(.*?)</$tag\s*>~si", 1);
+		return array("~<$tag\b[^>]*>((?:[^<]++|<(?!/?$tag\b)|(?0))*+)</$tag\s*>~i", 1);
 	}
 
 	/**
