@@ -102,10 +102,18 @@ $config[] = array(
 	'columnWidth' => 20,
 );
 
-foreach($this->wire()->languages as $language) {
+//one typograf per language; without LanguageSupport one for all, under the default language's name
+$typografLanguages = array();
+$languages = $this->wire()->languages;
+if($languages) {
+	foreach($languages as $language) $typografLanguages[$language->name] = $language->title;
+} else {
+	$typografLanguages['default'] = $this->_('Default');
+}
+foreach($typografLanguages as $languageName => $languageTitle) {
 	$config[] = array(
-		'name' => "typograf_{$language->name}",
-		'label' => sprintf($this->_('%s typograf'), $language->title),
+		'name' => "typograf_$languageName",
+		'label' => sprintf($this->_('%s typograf'), $languageTitle),
 		'type' => 'select',
 		'columnWidth' => 20,
 		'options' => $typografyOptions,

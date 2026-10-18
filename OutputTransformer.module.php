@@ -38,6 +38,12 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 	const STAGES = array('cleanup', 'typografy', 'replace');
 
+	//typograf method => the class it needs
+	const TYPOGRAFS = array(
+		'typografIntl' => '\PHP_Typography\PHP_Typography',
+		'typografCyr' => '\EMT\EMTypograph',
+	);
+
 	//never transformed, whatever the "No ... page templates" settings say
 	const SKIP_TEMPLATES = array('admin');
 
@@ -241,11 +247,12 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	}
 
 	private function canTransformBy($page, $transformation) {
-		//checking whether page template is not in no$hookNameTemplates
-		$deniedTemplatesConfigParam = 'no' . ucfirst($transformation) . 'Templates';
-		if($this->$deniedTemplatesConfigParam !== null)
-			if(in_array($page->template->id, $this->$deniedTemplatesConfigParam)) return false;
-		return true;
+		//the page's template must not be in "No <stage> page templates". Stored as an array of
+		//IDs; anything else (a single ID, a string) is read as a list instead of a TypeError
+		$denied = $this->get('no' . ucfirst($transformation) . 'Templates');
+		if(empty($denied)) return true;
+		if(!is_array($denied)) $denied = preg_split('~[\s,|]+~', (string) $denied, -1, PREG_SPLIT_NO_EMPTY);
+		return !in_array((int) $page->template->id, array_map('intval', $denied), true);
 	}
 
 	private function apply($html, $transformationName) {
@@ -286,15 +293,26 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 		return OutputTransformerCleanup::run($html);
 	}
 
+	/**
+	 * Name of the current user's language, 'default' on a site without LanguageSupport
+	 *
+	 * Its typograf setting is typograf_<name>; the default language is named 'default' too,
+	 * so a site that gets LanguageSupport later keeps its setting.
+	 *
+	 */
+	public function languageName() {
+		$user = $this->wire()->user;
+		$language = $user ? $user->get('language') : null;
+		return $language instanceof Page && $language->id ? (string) $language->name : 'default';
+	}
+
 	private function typografy($html) {
-		$lang = $this->wire()->user->language->name;
-		if(!$this->{"typograf_$lang"}) return $html;
+		$method = (string) $this->get('typograf_' . $this->languageName());
+		if($method === '') return $html;
 
-		$typografMethodName = $this->{"typograf_$lang"};
-		$typografMethodName = method_exists($this, $typografMethodName) ? $typografMethodName : 'typografIntl';
-		$html = $this->$typografMethodName($html);
-
-		return $html;
+		//only the typograf methods: a value naming anything else falls back to Intl, as it did
+		if(!isset(self::TYPOGRAFS[$method])) $method = 'typografIntl';
+		return $this->$method($html);
 	}
 
 	private function typografIntl($html) {
@@ -307,7 +325,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 			'es' => 'es-ES',
 		);
 
-		$locale = $locales[$this->wire()->user->language->name] ?? 'en-US';
+		$locale = $locales[$this->languageName()] ?? 'en-US';
 
 		$settings = new \PHP_Typography\Settings();
 		$settings->set_hyphenation(true);
