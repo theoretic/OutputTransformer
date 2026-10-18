@@ -40,8 +40,14 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 	//typograf method => the class it needs
 	const TYPOGRAFS = array(
-		'typografIntl' => '\PHP_Typography\PHP_Typography',
-		'typografCyr' => '\EMT\EMTypograph',
+		'typografIntl' => 'PHP_Typography\\PHP_Typography',
+		'typografCyr' => 'EMT\\EMTypograph',
+	);
+
+	//typograf method => its Composer package
+	const PACKAGES = array(
+		'typografIntl' => 'mundschenk-at/php-typography',
+		'typografCyr' => 'atispro/emt-php8',
 	);
 
 	//never transformed, whatever the "No ... page templates" settings say
@@ -184,6 +190,20 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 		return in_array(trim($mime), array('', 'html', 'text/html', 'application/xhtml+xml'), true);
 	}
 
+	/**
+	 * On this module's settings screen: warn about typografs that are set but not installed
+	 *
+	 */
+	public function ready() {
+		$page = $this->wire()->page;
+		if(!$page || !$page->template || $page->template->name !== 'admin') return;
+		if((string) $page->process !== 'ProcessModule') return;
+		if($this->wire()->input->get('name') !== $this->className()) return;
+		foreach($this->missingTypografs() as $key => $class) {
+			$this->warning("OutputTransformer, $key: $class is not installed, so this typograf does nothing. Install it with Composer.");
+		}
+	}
+
 	public function hookAfterSaveConfig(HookEvent $event) {
 		//settings of this module only: report keep patterns that do not compile
 		$module = $event->arguments(0);
@@ -315,14 +335,51 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 		return $this->$method($html);
 	}
 
+	/**
+	 * The typograf classes the settings ask for and Composer did not install
+	 *
+	 * @return array typograf_<language> setting => class
+	 *
+	 */
+	public function missingTypografs() {
+		$missing = array();
+		foreach($this->wire()->modules->getConfig($this) as $key => $method) {
+			if(strpos($key, 'typograf_') !== 0 || !is_string($method) || $method === '') continue;
+			$class = self::TYPOGRAFS[$method] ?? self::TYPOGRAFS['typografIntl'];
+			if(!class_exists($class)) $missing[$key] = $class;
+		}
+		return $missing;
+	}
+
+	/**
+	 * Logs a missing typograf class once a day: every render would otherwise add a line
+	 *
+	 */
+	protected function typografMissing($method) {
+		$class = self::TYPOGRAFS[$method];
+		$cache = $this->wire()->cache;
+		$key = "missing-$method";
+		if($cache) {
+			if($cache->getFor($this, $key)) return;
+			$cache->saveFor($this, $key, 1, WireCache::expireDaily);
+		}
+		$this->logLine("typografy: $class is not installed, so the $method typograf does nothing (composer require " . self::PACKAGES[$method] . ')');
+	}
+
 	private function typografIntl($html) {
 		//uses mundschenk-at typograf
-		if(!class_exists('\\PHP_Typography\\PHP_Typography')) return $html;
+		if(!class_exists(self::TYPOGRAFS['typografIntl'])) {
+			$this->typografMissing('typografIntl');
+			return $html;
+		}
 
+		//language name => php-typography hyphenation language (its src/lang/<code>.json)
 		$locales = array(
 			'en' => 'en-US',
-			'fr' => 'fr-FR',
-			'es' => 'es-ES',
+			'fr' => 'fr',
+			'es' => 'es',
+			'de' => 'de',
+			'ru' => 'ru',
 		);
 
 		$locale = $locales[$this->languageName()] ?? 'en-US';
@@ -339,7 +396,10 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 	private function typografCyr($html) {
 		//uses EMT-php8 typograf from https://mdash.ru/, https://atis.pro/ version
-		if(!class_exists('\\EMT\\EMTypograph')) return $html;
+		if(!class_exists(self::TYPOGRAFS['typografCyr'])) {
+			$this->typografMissing('typografCyr');
+			return $html;
+		}
 
 		$options = array(
 			'Etc.split_number_to_triads' => 'off',
@@ -348,6 +408,10 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 			'Text.breakline' => 'off',
 			'Text.email' => 'off',
 			'Text.paragraphs' => 'off',
+			//settings, off unless checked, as in OutputFilter: links made of plain-text URLs,
+			//spaces added after punctuation
+			'Text.auto_links' => $this->emtAutoLinks ? 'on' : 'off',
+			'Space.autospace_after' => $this->emtAutospaceAfter ? 'on' : 'off',
 		);
 
 		$html = \EMT\EMTypograph::fast_apply($html, $options);

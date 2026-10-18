@@ -122,6 +122,23 @@ foreach($typografLanguages as $languageName => $languageTitle) {
 	);
 }
 
+//EMT (Cyrillic typograf) rules that OutputFilter switched off; off unless checked
+$config[] = array(
+	'name' => 'emtAutoLinks',
+	'type' => 'checkbox',
+	'label' => $this->_('Cyrillic typograf: make links of URLs'),
+	'description' => $this->_('EMT option Text.auto_links: turns plain-text URLs into links.'),
+	'columnWidth' => 20,
+);
+
+$config[] = array(
+	'name' => 'emtAutospaceAfter',
+	'type' => 'checkbox',
+	'label' => $this->_('Cyrillic typograf: spaces after punctuation'),
+	'description' => $this->_('EMT option Space.autospace_after: adds a missing space after commas, dots and other punctuation.'),
+	'columnWidth' => 20,
+);
+
 $config[] = array(
 	'name' => 'isEnabled',
 	'type' => 'checkbox',
