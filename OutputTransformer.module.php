@@ -36,10 +36,21 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	//before its helpers must leave pages untransformed for a moment, not fatal
 	const HELPERS = array('OutputTransformerMasker.php', 'OutputTransformerCleanup.php');
 
+	const STAGES = array('cleanup', 'typografy', 'replace');
+
+	/**
+	 * Stages whose <no-x> markers hookStripMarkers() removes: the ones that do not run
+	 *
+	 * @var array
+	 *
+	 */
+	protected $strippedStages = array();
+
 	public function init() {
 		foreach(self::HELPERS as $helper) {
 			if(!is_file(__DIR__ . "/$helper")) {
 				$this->logLine("$helper is missing -- no transformations until it is there");
+				$this->addStripHook(self::STAGES);
 				return;
 			}
 			require_once(__DIR__ . "/$helper");
@@ -47,11 +58,54 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 		$this->addHookAfter('Modules::saveConfig', $this, 'hookAfterSaveConfig');
 
-		if(!$this->isEnabled || $this->isEnabled == '') return;
+		if(!$this->isEnabled || $this->isEnabled == '') {
+			$this->addStripHook(self::STAGES);
+			return;
+		}
 
-		if($this->cleanupPriority !== '') $this->addHookAfter('Page::render', $this, 'hookCleanup', array('priority' => $this->cleanupPriority ?: -1));
-		if($this->typografyPriority !== '') $this->addHookAfter('Page::render', $this, 'hookTypografy', array('priority' => $this->typografyPriority ?: -1));
-		if($this->replacePriority !== '') $this->addHookAfter('Page::render', $this, 'hookReplace', array('priority' => $this->replacePriority ?: -1));
+		$off = array();
+		foreach(self::STAGES as $stage) {
+			$priority = $this->get("{$stage}Priority");
+			if($priority === '') {
+				$off[] = $stage;
+				continue;
+			}
+			$this->addHookAfter('Page::render', $this, 'hook' . ucfirst($stage), array('priority' => $priority ?: -1));
+		}
+		$this->addStripHook($off);
+	}
+
+	/**
+	 * A stage that does not run still owes the page the removal of its <no-x> markers: an
+	 * unknown element like <no-cleanup> inside <head> closes the head, and everything after
+	 * it is reparented into the body.
+	 *
+	 */
+	protected function addStripHook(array $stages) {
+		if(!count($stages)) return;
+		$this->strippedStages = $stages;
+		$this->addHookAfter('Page::render', $this, 'hookStripMarkers', array('priority' => -1));
+	}
+
+	/**
+	 * Removes the <no-x> marker tags of the given stages, nothing else
+	 *
+	 * Needs no helper class, so it also works when the helpers are missing.
+	 *
+	 * @param string $html
+	 * @param array $stages
+	 * @return string
+	 *
+	 */
+	public static function stripMarkers($html, array $stages) {
+		if(!is_string($html) || $html === '' || !count($stages) || stripos($html, 'no-') === false) return $html;
+		$names = implode('|', array_map(function($stage) { return preg_quote($stage, '~'); }, $stages));
+		$out = preg_replace('~</?no-(?:' . $names . ')\b[^>]*>~i', '', $html);
+		return is_string($out) ? $out : $html;
+	}
+
+	public function hookStripMarkers(HookEvent $event) {
+		$event->return = self::stripMarkers($event->return, $this->strippedStages);
 	}
 
 	public function hookAfterSaveConfig(HookEvent $event) {
@@ -61,7 +115,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 		if($class !== $this->className()) return;
 
 		$data = $this->wire()->modules->getConfig($this);
-		foreach(array('cleanup', 'typografy', 'replace') as $transformation) {
+		foreach(self::STAGES as $transformation) {
 			$field = 'keep' . ucfirst($transformation) . 'Patterns';
 			OutputTransformerMasker::userRules($data[$field] ?? '', function($message) use ($transformation) {
 				$this->warning("OutputTransformer, $transformation: $message -- it will be skipped");
@@ -83,7 +137,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 	private function transform($page, $html, $transformation) {
 		//no-transform template pages still lose this stage's <no-x> wrapper tags
-		if(!$this->canTransformBy($page, $transformation)) return OutputTransformerMasker::stripWrapper((string) $html, $transformation);
+		if(!$this->canTransformBy($page, $transformation)) return self::stripMarkers($html, array($transformation));
 		return $this->apply($html, $transformation);
 	}
 
