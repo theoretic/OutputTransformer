@@ -71,13 +71,15 @@ foreach($transformations as $transformation => $params) {
 	);
 }
 
-//replacements
+//replacements: line N of one is replaced by line N of the other. noTrim before value: a leading
+//or trailing space, or an empty first or last line, is part of a rule
 $config[] = array(
 	'name' => 'replaceWhats',
 	'type' => 'textarea',
 	'label' => $this->_('Replace what'),
-	'notes' => $this->_('One mb_ereg_replace sample per string.'),
+	'notes' => $this->_('One mb_ereg_replace sample per string. A pattern that does not compile is skipped and logged.'),
 	'columnWidth' => 20,
+	'noTrim' => true,
 	'value' => '\s&\s',
 );
 
@@ -85,9 +87,19 @@ $config[] = array(
 	'name' => 'replaceBys',
 	'type' => 'textarea',
 	'label' => $this->_('Replace by'),
-	'notes' => $this->_('One mb_ereg_replace sample per string.'),
+	'notes' => $this->_('One mb_ereg_replace sample per string, on the same line as its pattern.'),
 	'columnWidth' => 20,
+	'noTrim' => true,
 	'value' => '&nbsp;&&nbsp;',
+);
+
+$config[] = array(
+	'name' => 'replaceEmptyDeletes',
+	'type' => 'checkbox',
+	'label' => $this->_('Empty replacement deletes'),
+	'description' => $this->_('Checked: an empty "Replace by" line deletes what its pattern matches.'),
+	'notes' => $this->_('Unchecked (default, as before 0.5.0): an empty "Replace by" line switches its rule off.'),
+	'columnWidth' => 20,
 );
 
 foreach($this->wire()->languages as $language) {

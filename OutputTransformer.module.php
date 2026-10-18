@@ -191,6 +191,32 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 				$this->warning("OutputTransformer, $transformation: $message -- it will be skipped");
 			});
 		}
+
+		//replace rules that do not compile, and patterns left without a replacement line
+		$bys = self::lines($data['replaceBys'] ?? '');
+		foreach(self::lines($data['replaceWhats'] ?? '') as $i => $what) {
+			if($what === '') continue;
+			$line = $i + 1;
+			if(!is_string(@mb_ereg_replace($what, '', ''))) {
+				$this->warning("OutputTransformer, replace: line $line, $what, is not a valid mb_ereg pattern -- it will be skipped");
+			} else if(!array_key_exists($i, $bys)) {
+				$this->warning("OutputTransformer, replace: line $line, $what, has no replacement line -- it will be skipped");
+			}
+		}
+	}
+
+	/**
+	 * Lines of a settings textarea, whatever the line breaks
+	 *
+	 * Core turns CRLF into LF on save, but values stored before that, or by other means, may
+	 * still carry \r: split on any line break, so no pattern ends in an invisible \r.
+	 *
+	 * @param string|null $text
+	 * @return array
+	 *
+	 */
+	public static function lines($text) {
+		return preg_split('~\R~', (string) $text);
 	}
 
 	public function hookTypografy(HookEvent $event) {
@@ -311,17 +337,32 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 		return $html;
 	}
 
+	/**
+	 * Line N of "Replace what" is replaced by line N of "Replace by"
+	 *
+	 * A blank pattern line, or one with no replacement line, is skipped. An empty replacement
+	 * line skips its rule too, as it always did, unless "Empty replacement deletes" is on. "0"
+	 * is a replacement like any other. A rule that fails is skipped and logged; the others run.
+	 *
+	 */
 	private function replace($html) {
 		if(!$this->replaceWhats || $this->replaceWhats == '') return $html;
 
-		$replaceWhats = explode("\n", $this->replaceWhats);
-		$replaceBys = explode("\n", $this->replaceBys);
+		$replaceBys = self::lines($this->replaceBys);
+		$emptyDeletes = (bool) $this->replaceEmptyDeletes;
 
-		foreach($replaceWhats as $i => $replaceWhat) {
-			if(!$replaceBys[$i]) continue;
+		foreach(self::lines($this->replaceWhats) as $i => $replaceWhat) {
+			if($replaceWhat === '' || !array_key_exists($i, $replaceBys)) continue;
+			$replaceBy = $replaceBys[$i];
+			if($replaceBy === '' && !$emptyDeletes) continue;
 
-			$html = mb_ereg_replace($replaceWhat, $replaceBys[$i], $html); //can be memory and time heavy!
-			if(!is_string($html)) return null;
+			//one pass over the whole page per rule: fine for tens of rules
+			$out = @mb_ereg_replace($replaceWhat, $replaceBy, $html);
+			if(!is_string($out)) {
+				$this->logLine('replace: rule ' . ($i + 1) . " skipped, $replaceWhat failed");
+				continue;
+			}
+			$html = $out;
 		}
 		return $html;
 	}
