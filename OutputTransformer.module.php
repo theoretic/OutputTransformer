@@ -327,8 +327,9 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	}
 
 	private function typografy($html) {
+		//none: empty, or "0", which the select's empty first option (key 0) saves
 		$method = (string) $this->get('typograf_' . $this->languageName());
-		if($method === '') return $html;
+		if(!$method) return $html;
 
 		//only the typograf methods: a value naming anything else falls back to Intl, as it did
 		if(!isset(self::TYPOGRAFS[$method])) $method = 'typografIntl';
@@ -344,7 +345,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	public function missingTypografs() {
 		$missing = array();
 		foreach($this->wire()->modules->getConfig($this) as $key => $method) {
-			if(strpos($key, 'typograf_') !== 0 || !is_string($method) || $method === '') continue;
+			if(strpos($key, 'typograf_') !== 0 || !$method || !is_string($method)) continue;
 			$class = self::TYPOGRAFS[$method] ?? self::TYPOGRAFS['typografIntl'];
 			if(!class_exists($class)) $missing[$key] = $class;
 		}
