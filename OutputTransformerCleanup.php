@@ -50,12 +50,12 @@ class OutputTransformerCleanup {
 	const WS = " \t\n\r\f";
 
 	//attributes whose values are whitespace-separated lists
-	const LIST_ATTRIBUTES = ['class', 'rel', 'srcset', 'sizes'];
+	const LIST_ATTRIBUTES = array('class', 'rel', 'srcset', 'sizes');
 
 	//phrasing elements that hold text; whitespace between two of them is a word
 	//space. Replaced and form elements (img, svg, button, input...) are left out:
 	//they are the ones laid out in rows that pages were styled against
-	const TEXT_LEVEL = ['a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'del', 'dfn', 'em', 'i', 'ins', 'kbd', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var'];
+	const TEXT_LEVEL = array('a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'del', 'dfn', 'em', 'i', 'ins', 'kbd', 'mark', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var');
 
 	const SEGMENTS = '~
 		(?<comment><!--.*?-->)
@@ -73,27 +73,27 @@ class OutputTransformerCleanup {
 		if(preg_match_all(self::SEGMENTS, $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) === false) return null;
 
 		//pieces: [kind, html, tagName, isClosing]; kind is text|tag|keep
-		$pieces = [];
+		$pieces = array();
 		$pos = 0;
 
 		foreach($matches as $m) {
 			$start = $m[0][1];
-			if($start > $pos) $pieces[] = ['text', substr($html, $pos, $start - $pos), '', false];
+			if($start > $pos) $pieces[] = array('text', substr($html, $pos, $start - $pos), '', false);
 			$pos = $start + strlen($m[0][0]);
 
 			if(self::has($m, 'comment')) {
 				$comment = $m['comment'][0];
-				if(self::keepComment($comment)) $pieces[] = ['keep', $comment, '', false];
+				if(self::keepComment($comment)) $pieces[] = array('keep', $comment, '', false);
 				continue;
 			}
 
 			if(self::has($m, 'cdata')) {
-				$pieces[] = ['keep', $m['cdata'][0], '', false];
+				$pieces[] = array('keep', $m['cdata'][0], '', false);
 				continue;
 			}
 
 			if(self::has($m, 'declaration')) {
-				$pieces[] = ['keep', $m['declaration'][0], '', false];
+				$pieces[] = array('keep', $m['declaration'][0], '', false);
 				continue;
 			}
 
@@ -103,19 +103,19 @@ class OutputTransformerCleanup {
 				$end = self::has($m, 'rawend') ? $m['rawend'][0] : '';
 				if($name === 'style') $body = self::collapse($body);
 				$end = $end === '' ? '' : "</{$m['rawname'][0]}>";
-				$pieces[] = ['keep', self::rebuildTag($m['raw'][0]) . $body . $end, '', false];
+				$pieces[] = array('keep', self::rebuildTag($m['raw'][0]) . $body . $end, '', false);
 				continue;
 			}
 
 			$tag = $m['tag'][0];
 			$isClosing = $tag[1] === '/';
 			preg_match('~^</?([^ \t\n\r\f/>]+)~', $tag, $nm);
-			$pieces[] = ['tag', self::rebuildTag($tag), strtolower($nm[1]), $isClosing];
+			$pieces[] = array('tag', self::rebuildTag($tag), strtolower($nm[1]), $isClosing);
 		}
-		if($pos < strlen($html)) $pieces[] = ['text', substr($html, $pos), '', false];
+		if($pos < strlen($html)) $pieces[] = array('text', substr($html, $pos), '', false);
 
 		//merging text pieces that became neighbours when a comment was dropped
-		$merged = [];
+		$merged = array();
 		foreach($pieces as $piece) {
 			$last = count($merged) - 1;
 			if($piece[0] === 'text' && $last >= 0 && $merged[$last][0] === 'text') {
@@ -127,7 +127,7 @@ class OutputTransformerCleanup {
 
 		$out = '';
 		$count = count($merged);
-		$spaceAfter = []; //tags to follow with the word space a leaf trim took out
+		$spaceAfter = array(); //tags to follow with the word space a leaf trim took out
 		foreach($merged as $i => $piece) {
 
 			if($piece[0] !== 'text') {

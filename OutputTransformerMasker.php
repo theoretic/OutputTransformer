@@ -87,7 +87,7 @@ class OutputTransformerMasker {
 	 */
 	public static function wrapperRule($stage) {
 		$tag = preg_quote("no-$stage", '~');
-		return ["~<$tag\b[^>]*>(.*?)</$tag\s*>~si", 1];
+		return array("~<$tag\b[^>]*>(.*?)</$tag\s*>~si", 1);
 	}
 
 	/**
@@ -95,7 +95,7 @@ class OutputTransformerMasker {
 	 */
 	public static function elementRule(array $names) {
 		$names = implode('|', array_map(function($n) { return preg_quote($n, '~'); }, $names));
-		return ["~<($names)\b(?:\"[^\"]*\"|'[^']*'|[^'\">])*+>.*?</\\1[ \\t\\n\\r\\f]*>~si", null];
+		return array("~<($names)\b(?:\"[^\"]*\"|'[^']*'|[^'\">])*+>.*?</\\1[ \\t\\n\\r\\f]*>~si", null);
 	}
 
 	/**
@@ -103,7 +103,7 @@ class OutputTransformerMasker {
 	 * A pattern that does not compile is left out and reported.
 	 */
 	public static function userRules($text, ?callable $log = null) {
-		$rules = [];
+		$rules = array();
 		foreach(preg_split('~\R~', (string) $text) as $line) {
 			$pattern = trim($line);
 			if($pattern === '') continue;
@@ -111,7 +111,7 @@ class OutputTransformerMasker {
 				if($log) $log("ignoring invalid pattern $pattern");
 				continue;
 			}
-			$rules[] = [$pattern, null];
+			$rules[] = array($pattern, null);
 		}
 		return $rules;
 	}
@@ -122,7 +122,7 @@ class OutputTransformerMasker {
 
 ////
 
-	private $store = [];
+	private $store = array();
 
 	/**
 	 * Replaces every match of every rule with a placeholder; later rules see

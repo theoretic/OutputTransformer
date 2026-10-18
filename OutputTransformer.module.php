@@ -1,0 +1,202 @@
+<?php namespace ProcessWire;
+
+/**
+ * OutputTransformer
+ *
+ * Post-processes the HTML of rendered pages in three Page::render after-hooks:
+ * cleanup (minify), typografy (typographer per language), replace (mb_ereg rules).
+ *
+ * @author AT / atis.pro
+ * @author Claude
+ *
+ * 13.08.26, 11.09.26
+ */
+
+class OutputTransformer extends WireData implements Module, ConfigurableModule {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'OutputTransformer',
+			'version' => '0.4.2',
+			'summary' => 'Strips extra symbols from output, performs typographics, replacements etc.',
+			'author' => 'AT / atis.pro',
+			'href' => 'http://atis.pro',
+			'singular' => true,
+			'autoload' => true,
+			'icon' => 'file-o',
+		);
+	}
+
+	const LOG = 'outputtransformer';
+
+	//elements typografy and replace have no business in: code, css, form values
+	const OFF_LIMITS = array('script', 'style', 'textarea');
+
+	//loaded in init(), not at the top of the file: a deploy that uploads this file
+	//before its helpers must leave pages untransformed for a moment, not fatal
+	const HELPERS = array('OutputTransformerMasker.php', 'OutputTransformerCleanup.php');
+
+	public function init() {
+		foreach(self::HELPERS as $helper) {
+			if(!is_file(__DIR__ . "/$helper")) {
+				$this->logLine("$helper is missing -- no transformations until it is there");
+				return;
+			}
+			require_once(__DIR__ . "/$helper");
+		}
+
+		$this->addHookAfter('Modules::saveConfig', $this, 'hookAfterSaveConfig');
+
+		if(!$this->isEnabled || $this->isEnabled == '') return;
+
+		if($this->cleanupPriority !== '') $this->addHookAfter('Page::render', $this, 'hookCleanup', array('priority' => $this->cleanupPriority ?: -1));
+		if($this->typografyPriority !== '') $this->addHookAfter('Page::render', $this, 'hookTypografy', array('priority' => $this->typografyPriority ?: -1));
+		if($this->replacePriority !== '') $this->addHookAfter('Page::render', $this, 'hookReplace', array('priority' => $this->replacePriority ?: -1));
+	}
+
+	public function hookAfterSaveConfig(HookEvent $event) {
+		//settings of this module only: report keep patterns that do not compile
+		$module = $event->arguments(0);
+		$class = is_object($module) ? $module->className() : wireClassName((string) $module);
+		if($class !== $this->className()) return;
+
+		$data = $this->wire()->modules->getConfig($this);
+		foreach(array('cleanup', 'typografy', 'replace') as $transformation) {
+			$field = 'keep' . ucfirst($transformation) . 'Patterns';
+			OutputTransformerMasker::userRules($data[$field] ?? '', function($message) use ($transformation) {
+				$this->warning("OutputTransformer, $transformation: $message -- it will be skipped");
+			});
+		}
+	}
+
+	public function hookTypografy(HookEvent $event) {
+		$event->return = $this->transform($event->object, $event->return, 'typografy');
+	}
+
+	public function hookReplace(HookEvent $event) {
+		$event->return = $this->transform($event->object, $event->return, 'replace');
+	}
+
+	public function hookCleanup(HookEvent $event) {
+		$event->return = $this->transform($event->object, $event->return, 'cleanup');
+	}
+
+	private function transform($page, $html, $transformation) {
+		//no-transform template pages still lose this stage's <no-x> wrapper tags
+		if(!$this->canTransformBy($page, $transformation)) return OutputTransformerMasker::stripWrapper((string) $html, $transformation);
+		return $this->apply($html, $transformation);
+	}
+
+	private function canTransformBy($page, $transformation) {
+		//checking whether page template is not in no$hookNameTemplates
+		$deniedTemplatesConfigParam = 'no' . ucfirst($transformation) . 'Templates';
+		if($this->$deniedTemplatesConfigParam !== null)
+			if(in_array($page->template->id, $this->$deniedTemplatesConfigParam)) return false;
+		return true;
+	}
+
+	private function apply($html, $transformationName) {
+		//masks what the transformation must not touch, runs it, puts the masked parts back;
+		//on any failure the page goes out untransformed rather than broken or blank
+
+		$log = function($message) { $this->logLine($message); };
+
+		//<no-x> wrappers first: their content is kept, the wrapper tags dropped
+		$rules = array(OutputTransformerMasker::wrapperRule($transformationName));
+
+		//cleanup knows script, pre, textarea and style itself; the other two do not
+		if($transformationName !== 'cleanup') $rules[] = OutputTransformerMasker::elementRule(self::OFF_LIMITS);
+
+		//"Keep these untouched" from the settings
+		$keepPatterns = $this->{'keep' . ucfirst($transformationName) . 'Patterns'};
+		$rules = array_merge($rules, OutputTransformerMasker::userRules($keepPatterns, $log));
+
+		return OutputTransformerMasker::run($html, $transformationName, function($masked) use ($transformationName) {
+			return $this->$transformationName($masked);
+		}, $rules, $log);
+	}
+
+	/**
+	 * Saves a line to the module log, once per message per request: a broken pattern must not
+	 * write a line per render. Not named log(): that would shadow the hookable Wire::log().
+	 *
+	 */
+	private function logLine($message) {
+		static $logged = array();
+		if(isset($logged[$message])) return;
+		$logged[$message] = true;
+		$this->wire()->log->save(self::LOG, $message);
+	}
+
+	private function cleanup($html) {
+		//see OutputTransformerCleanup.php; null on a PCRE error, which apply() treats as failure
+		return OutputTransformerCleanup::run($html);
+	}
+
+	private function typografy($html) {
+		$lang = $this->wire()->user->language->name;
+		if(!$this->{"typograf_$lang"}) return $html;
+
+		$typografMethodName = $this->{"typograf_$lang"};
+		$typografMethodName = method_exists($this, $typografMethodName) ? $typografMethodName : 'typografIntl';
+		$html = $this->$typografMethodName($html);
+
+		return $html;
+	}
+
+	private function typografIntl($html) {
+		//uses mundschenk-at typograf
+		if(!class_exists('\\PHP_Typography\\PHP_Typography')) return $html;
+
+		$locales = array(
+			'en' => 'en-US',
+			'fr' => 'fr-FR',
+			'es' => 'es-ES',
+		);
+
+		$locale = $locales[$this->wire()->user->language->name] ?? 'en-US';
+
+		$settings = new \PHP_Typography\Settings();
+		$settings->set_hyphenation(true);
+		$settings->set_hyphenation_language($locale);
+
+		$typo = new \PHP_Typography\PHP_Typography();
+		$html = $typo->process($html, $settings);
+
+		return $html;
+	}
+
+	private function typografCyr($html) {
+		//uses EMT-php8 typograf from https://mdash.ru/, https://atis.pro/ version
+		if(!class_exists('\\EMT\\EMTypograph')) return $html;
+
+		$options = array(
+			'Etc.split_number_to_triads' => 'off',
+			'OptAlign.all' => 'off',
+			'Space.bracket_fix' => 'off',
+			'Text.breakline' => 'off',
+			'Text.email' => 'off',
+			'Text.paragraphs' => 'off',
+		);
+
+		$html = \EMT\EMTypograph::fast_apply($html, $options);
+
+		return $html;
+	}
+
+	private function replace($html) {
+		if(!$this->replaceWhats || $this->replaceWhats == '') return $html;
+
+		$replaceWhats = explode("\n", $this->replaceWhats);
+		$replaceBys = explode("\n", $this->replaceBys);
+
+		foreach($replaceWhats as $i => $replaceWhat) {
+			if(!$replaceBys[$i]) continue;
+
+			$html = mb_ereg_replace($replaceWhat, $replaceBys[$i], $html); //can be memory and time heavy!
+			if(!is_string($html)) return null;
+		}
+		return $html;
+	}
+
+}
