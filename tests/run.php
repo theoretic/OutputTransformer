@@ -48,6 +48,8 @@ $cases = array(
 	array('< in text is not a tag', $cleanup, '<p>если x < y, то</p>', '<p>если x < y, то</p>'),
 	array('> in text kept', $cleanup, '<p>5 > 3</p>', '<p>5 > 3</p>'),
 	array('script verbatim', $cleanup, "<script>var a = 1; // note{$nl}var b = \"x\";</script>", "<script>var a = 1; // note{$nl}var b = \"x\";</script>"),
+	//0.3.0 unquoted anything shaped like an attribute, and Matomo's u="//host/" became a // comment
+	array('attribute-shaped string in script keeps its quotes', $cleanup, "<script>var u=\"//events.ofsla.ru/matomo/\";{$nl}_paq.push(['setTrackerUrl', u+'matomo.php']);</script>", "<script>var u=\"//events.ofsla.ru/matomo/\";{$nl}_paq.push(['setTrackerUrl', u+'matomo.php']);</script>"),
 	array('ld+json verbatim', $cleanup, '<script type="application/ld+json">{"a": "b;"}</script>', '<script type=application/ld+json>{"a": "b;"}</script>'),
 	array('pre verbatim', $cleanup, "<pre>line 1{$nl}    indented</pre>", "<pre>line 1{$nl}    indented</pre>"),
 	array('textarea verbatim', $cleanup, "<textarea> x  y {$nl}</textarea>", "<textarea> x  y {$nl}</textarea>"),
