@@ -9,8 +9,9 @@ day in 0.5.0: each item below says **done** (with how) or **not done** (with why
   mantra-papa, onmed, opus-design, republic-remont, testfly, voxhall-design.
 - Plain copies, all exact snapshots of commits here; nothing to harvest except the v21 item below:
   - paraavis 0.4.2: identical, but the copy carries `.claude/worktrees/nice-wright-63a4ac/`
-    inside the site webroot. Delete it there. **Not done**: site files are out of scope for this
-    repo (read-only from here); delete it when paraavis is switched to the junction.
+    inside the site webroot. Delete it there. **Done** (found 2026-11-20): paraavis links the
+    shared copy now (`_shared/processwire/site/modules/OutputTransformer`); no `.claude` is left
+    in its webroot.
   - txm "21": byte-identical to the uncommitted work of the worktree branch
     `claude/nice-wright-63a4ac` (`574546d`), never merged.
   - 0.3.0 (`a5851f4`): elbrusfly, steelbak, odnaco, peterbak, sla.events.
@@ -22,8 +23,11 @@ day in 0.5.0: each item below says **done** (with how) or **not done** (with why
   `tests/bootstrap.php` stubs, the octal-version note (semver since 0.3.0), and its README claim
   that the order is replace, typografy, cleanup (it is the reverse). Worktree and branch removed.
 - The predecessor `_archive/OutputFilter` is still active on davinci (007), ofsla (008) and
-  paraavis (003). Retiring it depends on the typography items below. **Not done here**: site
-  configuration; the module side is ready and the README says what each site needs.
+  paraavis (003). Retiring it depends on the typography items below. **Done** 2026-11-20 on the
+  local copies (`D:/work/sites/home/*.osp`): paraavis and ofsla had it uninstalled already;
+  davinci got OutputTransformer installed (Intl for all nine languages, OutputFilter's denied
+  templates) and OutputFilter uninstalled. The module files stay on disk, uninstalled. midess
+  still runs OutputFilter 007 (not part of this plan). Production needs the same.
 
 ## Audit
 
@@ -73,7 +77,11 @@ Typography:
   silently does nothing; the site's old non-namespaced `site/shared/classes/EMT.php` is never
   used. Log once (and warn on the config screen) when the configured typograf class is absent.
   **Done**: logged once a day (WireCache), warning on the settings screen
-  (`missingTypografs()`). Installing the package on ofsla is site work, **not done**.
+  (`missingTypografs()`). Installing the package on ofsla: **done** 2026-11-20
+  (`composer require atispro/emt-php8:dev-main --ignore-platform-req=php+`: its lock pins
+  packages capped at PHP 8.4, so only the upper bound is ignored; nothing else changed).
+  ofsla's typografy deny list got `api`, `test`, `member-individual` from OutputFilter 008, since
+  EMT now actually runs there.
 - `:160-170` does not switch off EMT's `Text.auto_links` and `Space.autospace_after`, which
   OutputFilter 008 switches off. After a switch EMT turns URLs into links and adds spaces after
   punctuation. Add both as options, default off as in OutputFilter. **Done**: `emtAutoLinks`,
@@ -85,7 +93,8 @@ Typography:
   hyphenation; now `en` en-US, `fr`, `es`, `de`, `ru`.
 - OutputFilter's built-in rules (` -- ` to `&mdash;`, ten `Б У` to `БУ` style pairs on ofsla)
   must move into `replaceWhats`/`replaceBys` (`mb_ereg` patterns) before it is retired.
-  **Documented** in the README as a ready table; entering them is site configuration, not done.
+  **Documented** in the README as a ready table; **entered** 2026-11-20 on ofsla (after its
+  `\s&\s` rule), davinci (` -- `) and paraavis (` -- ` and its own `О П `, from OutputFilter 003).
 
 Performance:
 - Three `Page::render` hooks run on every render, nested ones included (see the guard above).
@@ -112,8 +121,9 @@ patterns too. One WireCache row a day when a typograf package is missing.
   back to 020).
 - Keep `tests/run.php` (needs no PW) and add `tests/smoke.php` against a real install: markers
   stripped when disabled, CRLF config, JSON template untouched, nested render transformed once.
-  **Done**, plus the other new behaviour. Not covered: the missing-helper case (needs a second
-  copy of the class in one process); it shares `hookStripMarkers` with the disabled case.
+  **Done**, plus the other new behaviour. The missing-helper case, first left out (it seemed to
+  need a second copy of the class in one process), is covered since: `init()` reads
+  `static::HELPERS`, and a test subclass names a file that does not exist.
 - Version stays a semver string. The module has no assets, so `?v=` does not matter here.
   **Done**: 0.5.0.
 
@@ -130,7 +140,9 @@ relying on the default denied list. **Done**: `SKIP_TEMPLATES`. (atispro's store
 - A sandbox without LanguageSupport (peterbak): no warnings in `site/assets/logs/errors.txt`.
   **Not done as written**: there is no peterbak sandbox, and no sandbox without LanguageSupport.
   `smoke.php` covers it instead: the settings file read with `languages` null, and a user without
-  a language. odnaco (0.3.0 settings, one language) passes the smoke test.
+  a language. odnaco (0.3.0 settings, one language) passes the smoke test. **Done** 2026-11-20 on
+  parabook, the one local site without LanguageSupport (peterbak has it, one language):
+  `smoke.php` passes and `errors.txt` gets no new lines.
 - Page source with the module disabled shows no `<no-*>` tags. **Done** in `smoke.php`.
 - Added: rendered pages compared before and after with the stored settings, all other render
   hooks removed, CSRF tokens masked: atispro (7 pages) and odnaco (8 pages) are byte-identical

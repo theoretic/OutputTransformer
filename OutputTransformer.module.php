@@ -34,6 +34,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 
 	//loaded in init(), not at the top of the file: a deploy that uploads this file
 	//before its helpers must leave pages untransformed for a moment, not fatal
+	//(static:: so tests/smoke.php can name a missing one)
 	const HELPERS = array('OutputTransformerMasker.php', 'OutputTransformerCleanup.php');
 
 	const STAGES = array('cleanup', 'typografy', 'replace');
@@ -62,7 +63,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	protected $strippedStages = array();
 
 	public function init() {
-		foreach(self::HELPERS as $helper) {
+		foreach(static::HELPERS as $helper) {
 			if(!is_file(__DIR__ . "/$helper")) {
 				$this->logLine("$helper is missing -- no transformations until it is there");
 				$this->addStripHook(self::STAGES);

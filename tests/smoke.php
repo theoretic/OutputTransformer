@@ -147,6 +147,22 @@ check('enabled: cleaned, replaced, markers gone, wrapped parts kept', $home->ren
 scenario(array('isEnabled' => 0));
 check('disabled: only the markers are removed', $home->render() === str_replace(array('<no-cleanup>', '</no-cleanup>', '<no-replace>', '</no-replace>'), '', $page), show($home->render()));
 
+//a helper file missing (a deploy that uploaded the module file first): enabled, yet only the markers go
+scenario(array()); //for its fixture hook; then drop the module's own hooks
+$probe = new Page();
+foreach($wire->hooks->getHooks($probe, 'render') as $hook) {
+	if($hook['toObject'] instanceof OutputTransformer) $wire->hooks->removeHook($probe, $hook['id']);
+}
+$noHelper = $wire->wire(new class extends OutputTransformer {
+	const HELPERS = array('OutputTransformerMasker.php', 'OutputTransformerNoSuchHelper.php');
+});
+$noHelper->setArray($base);
+$noHelper->init();
+check('helper missing: only the markers are removed', $home->render() === str_replace(array('<no-cleanup>', '</no-cleanup>', '<no-replace>', '</no-replace>'), '', $page), show($home->render()));
+$hookNames = array();
+foreach($wire->hooks->getHooks($probe, 'render') as $hook) if($hook['toObject'] === $noHelper) $hookNames[] = $hook['toMethod'];
+check('helper missing: the strip hook is the only module hook', $hookNames === array('hookStripMarkers'), show($hookNames));
+
 scenario(array('replacePriority' => ''));
 check('stage off: its markers removed, the stage not run', $home->render() === '<head><title> A  &  B </title></head><p>x & y</p>q & r', show($home->render()));
 
