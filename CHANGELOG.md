@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Cleanup minifies `style` attribute values: whitespace runs (line breaks and tabs of a style
+  spread over template lines) become one space, none is left around `;` and each declaration's
+  colon. CSS strings, also `&quot;`/`&#39;`/`&apos;`-quoted ones, stay verbatim. Up to 0.5.0 the
+  value was only trimmed and lost its trailing `;`.
+
 ## 0.5.0 (2026-10-18)
 
 Stored settings of every deployed version (020, 21, 0.3.0, 0.4.x) keep working: no key was

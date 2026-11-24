@@ -17,8 +17,9 @@ Now the page is split into segments first and each kind has its own rules:
              start tag rebuilt, content verbatim; unclosed: verbatim to the end
   style      start tag rebuilt, whitespace in the content collapsed
   tag        rebuilt attribute by attribute; values stay byte-identical except
-             class/rel/srcset/sizes (trimmed, collapsed) and style (trimmed,
-             trailing ; dropped); quotes dropped only where HTML allows it
+             class/rel/srcset/sizes (trimmed, collapsed) and style (whitespace
+             collapsed outside CSS strings, none around ; and the property
+             colon, trailing ; dropped); quotes dropped only where HTML allows it
   text       \r removed, \n and \t to spaces, runs of spaces collapsed
 
 Kept from 0.3.0 on purpose, because pages were styled against it: whitespace
@@ -224,7 +225,7 @@ class OutputTransformerCleanup {
 				$value = self::collapse(trim($value, self::WS));
 			}
 			elseif($lower === 'style') {
-				$value = rtrim(trim($value, self::WS), ';');
+				$value = self::minifyStyle($value);
 			}
 
 			$keepQuotes = $selfClosing && $i === $last;
@@ -232,6 +233,41 @@ class OutputTransformerCleanup {
 		}
 
 		return $out . ($selfClosing ? '/' : '') . '>';
+	}
+
+	/**
+	 * A style attribute's declarations: whitespace runs to one space, none around
+	 * ; or a declaration's first colon, trimmed, trailing ; dropped. CSS strings
+	 * (quoted, or quoted with &quot; / &#39; / &apos; entities) stay verbatim, an
+	 * unterminated one to the end. Up to 0.5.0 a templated
+	 * style="\n\tleft: 70%;\n\t..." kept its line breaks and tabs.
+	 */
+	public static function minifyStyle($value) {
+
+		$strings = '~("(?:[^"\\\\]|\\\\.)*+(?:"|\z)|\'(?:[^\'\\\\]|\\\\.)*+(?:\'|\z)|&quot;.*?(?:&quot;|\z)|&#0*39;.*?(?:&#0*39;|\z)|&apos;.*?(?:&apos;|\z))~s';
+		$parts = preg_split($strings, $value, -1, PREG_SPLIT_DELIM_CAPTURE);
+		if($parts === false) return rtrim(trim($value, self::WS), ';');
+
+		$out = '';
+		$colon = false; //the current declaration's property colon was seen
+		foreach($parts as $k => $part) {
+			if($k % 2) {
+				$out .= $part;
+				continue;
+			}
+			$part = preg_replace('~[ \t\n\r\f]+~', ' ', $part);
+			$out .= preg_replace_callback('~ ?([;:]) ?~', function($m) use (&$colon) {
+				if($m[1] === ';') {
+					$colon = false;
+					return ';';
+				}
+				if($colon) return $m[0];
+				$colon = true;
+				return ':';
+			}, $part);
+		}
+
+		return rtrim(trim($out, self::WS), ';');
 	}
 
 	/**

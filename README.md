@@ -72,7 +72,7 @@ Since 0.4.0 cleanup splits the page into comments, tags, text and raw-text eleme
 - tags are rebuilt with one space between attributes, and quotes are dropped where HTML allows it;
 - comments are removed, except conditional comments and `<!--noindex-->`.
 
-It never changes an attribute value — only `class`, `rel`, `srcset` and `sizes` are trimmed and collapsed, and `style` loses its trailing `;` — and never touches the content of `script`, `pre`, `textarea` or CDATA. `style` content only has its whitespace collapsed. `xmp` and `plaintext` are not supported.
+It never changes an attribute value — only `class`, `rel`, `srcset` and `sizes` are trimmed and collapsed, and `style` has its whitespace collapsed outside CSS strings, none left around `;` and each declaration's colon, and loses its trailing `;` — and never touches the content of `script`, `pre`, `textarea` or CDATA. `style` content only has its whitespace collapsed. `xmp` and `plaintext` are not supported.
 
 Up to 0.3.0 cleanup applied its rules to the whole page as plain text, so it stripped the leading space from any attribute value (an admin form round-tripped `value=" | "` as `"| "`), turned `x < y` into a tag opener and joined script lines into their `//` comments.
 
