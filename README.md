@@ -69,7 +69,7 @@ Each transformation is a `Page::render` hook with the priority set in the settin
 Since 0.4.0 cleanup splits the page into comments, tags, text and raw-text elements, and treats each kind on its own:
 
 - whitespace in text is collapsed; whitespace between two tags, and around the text of an element holding nothing but text, is removed — except spaces (no line break or tab) between two text-level tags such as `</strong> <code>`, which are a word space and stay as one; likewise a space trimmed from the edge of a text-level element that sits flush against running text moves outside the tag (`слово<b> жирное</b>` → `слово <b>жирное</b>`);
-- tags are rebuilt with one space between attributes, and quotes are dropped where HTML allows it;
+- tags are rebuilt with one space between attributes, and quotes are dropped where HTML allows it (values with a colon keep them; an unquoted value ending in `/` in the tag's last attribute is followed by a space, `href=/x/ >`, so no `/>` appears that a simple tool would read as self-closing);
 - comments are removed, except conditional comments and `<!--noindex-->`.
 
 It never changes an attribute value — only `class`, `rel`, `srcset` and `sizes` are trimmed and collapsed, and `style` has its whitespace collapsed outside CSS strings, none left around `;` and each declaration's colon, and loses its trailing `;` — and never touches the content of `script`, `pre`, `textarea` or CDATA. `style` content only has its whitespace collapsed. `xmp` and `plaintext` are not supported.

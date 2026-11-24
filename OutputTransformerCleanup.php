@@ -199,6 +199,7 @@ class OutputTransformerCleanup {
 
 		$out = "<$name";
 		$last = count($attrs) - 1;
+		$slashEnd = false; //the last value is unquoted and ends in /
 
 		foreach($attrs as $i => $attr) {
 			$attrName = $attr[1][0];
@@ -213,7 +214,11 @@ class OutputTransformerCleanup {
 				$value = $attr[3][0];
 			}
 			elseif(isset($attr[4]) && $attr[4][1] >= 0) {
-				$out .= '=' . $attr[4][0];
+				//before the / of a self-closing tag an unquoted value would run into it
+				$value = $attr[4][0];
+				$quoted = $selfClosing && $i === $last && substr($value, -1) === '/';
+				$out .= '=' . ($quoted ? '"' . $value . '"' : $value);
+				if($i === $last && !$quoted) $slashEnd = substr($value, -1) === '/';
 				continue;
 			}
 			else {
@@ -229,10 +234,13 @@ class OutputTransformerCleanup {
 			}
 
 			$keepQuotes = $selfClosing && $i === $last;
-			$out .= '=' . (!$keepQuotes && self::canUnquote($value) ? $value : $quote . $value . $quote);
+			$unquoted = !$keepQuotes && self::canUnquote($value);
+			$out .= '=' . ($unquoted ? $value : $quote . $value . $quote);
+			if($i === $last) $slashEnd = $unquoted && substr($value, -1) === '/';
 		}
 
-		return $out . ($selfClosing ? '/' : '') . '>';
+		//href=/x/> is valid HTML, but tools matching /> read it as self-closing
+		return $out . ($selfClosing ? '/' : ($slashEnd ? ' ' : '')) . '>';
 	}
 
 	/**
@@ -272,12 +280,13 @@ class OutputTransformerCleanup {
 
 	/**
 	 * Whether a value may go unquoted: HTML5 allows it without whitespace,
-	 * quotes, = < > or backtick. Colons stay quoted as in 0.3.0, a trailing /
-	 * would read as self-closing, and a masked region may hide anything.
+	 * quotes, = < > or backtick. Colons stay quoted as in 0.3.0, and a masked
+	 * region may hide anything. A trailing / is part of an unquoted value for an
+	 * HTML parser; rebuildTag() keeps it from touching the > (up to 0.5.0 such a
+	 * value was always quoted, so href="/x/" kept its quotes before class).
 	 */
 	public static function canUnquote($value) {
 		if($value === '') return false;
-		if(substr($value, -1) === '/') return false;
 		if(strpos($value, OutputTransformerMasker::RESERVED_PREFIX) !== false) return false;
 		return (bool) preg_match('~^[^ \t\n\r\f"\'=<>`:]+$~', $value);
 	}

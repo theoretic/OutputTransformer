@@ -7,6 +7,10 @@
   spread over template lines) become one space, none is left around `;` and each declaration's
   colon. CSS strings, also `&quot;`/`&#39;`/`&apos;`-quoted ones, stay verbatim. Up to 0.5.0 the
   value was only trimmed and lost its trailing `;`.
+- A value ending in `/` goes unquoted like any other: `href="/x/" class=step` becomes
+  `href=/x/ class=step`. In the tag's last attribute a space keeps it off the `>`
+  (`<a href=/x/ >`), so the markup never shows a `/>` that is not self-closing; before the `/` of a
+  self-closing tag it stays quoted. Up to 0.5.0 such values were always quoted.
 
 ## 0.5.0 (2026-10-18)
 
