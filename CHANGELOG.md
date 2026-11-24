@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 (2026-11-24)
 
 ### Changed
 - Cleanup minifies `style` attribute values: whitespace runs (line breaks and tabs of a style
@@ -11,6 +11,11 @@
   `href=/x/ class=step`. In the tag's last attribute a space keeps it off the `>`
   (`<a href=/x/ >`), so the markup never shows a `/>` that is not self-closing; before the `/` of a
   self-closing tag it stays quoted. Up to 0.5.0 such values were always quoted.
+
+### Tests
+- `tests/smoke.php` covers a missing helper file: only the `<no-x>` markers are removed and the
+  strip hook is the module's only render hook. `init()` reads `static::HELPERS` so a test
+  subclass can name a missing file; no change for sites.
 
 ## 0.5.0 (2026-10-18)
 

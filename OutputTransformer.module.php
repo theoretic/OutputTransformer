@@ -17,7 +17,7 @@ class OutputTransformer extends WireData implements Module, ConfigurableModule {
 	public static function getModuleInfo() {
 		return array(
 			'title' => 'OutputTransformer',
-			'version' => '0.5.0',
+			'version' => '0.5.1',
 			'summary' => 'Strips extra symbols from output, performs typographics, replacements etc.',
 			'author' => 'AT / atis.pro',
 			'href' => 'http://atis.pro',
